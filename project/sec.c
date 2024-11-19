@@ -61,7 +61,7 @@ ssize_t input_sec(uint8_t* buf, size_t max_length) {
         memcpy(buf, client_hello, CLIENT_HELLO_SIZE);
         state_sec = CLIENT_SERVER_HELLO_AWAIT;
         /* Instead of return 0, do I return the payload buffer? */
-        return 38;
+        return sizeof(buf);
     }
     case SERVER_SERVER_HELLO_SEND: {
         print("SEND SERVER HELLO");
@@ -88,6 +88,8 @@ ssize_t input_sec(uint8_t* buf, size_t max_length) {
                 - Length: <variable>
                 - Value: <variable>
         */
+        uint8_t* server_hello;
+
 
         state_sec = SERVER_KEY_EXCHANGE_REQUEST_AWAIT;
         return 0;
@@ -124,7 +126,7 @@ ssize_t input_sec(uint8_t* buf, size_t max_length) {
 
 void output_sec(uint8_t* buf, size_t length) {
     // This passes it directly to standard output (working like Project 1)
-    return output_io(buf, length);
+    return output_io(buf, length); 
 
     switch (state_sec) {
     case SERVER_CLIENT_HELLO_AWAIT: {
