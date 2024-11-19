@@ -1,5 +1,6 @@
-results/results.json
 project/*.out
 project/*.o
 project/server
 project/client
+
+results/
