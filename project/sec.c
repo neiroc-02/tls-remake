@@ -12,6 +12,15 @@ int state_sec = 0;              // Current state for handshake
 uint8_t nonce[NONCE_SIZE];      // Store generated nonce to verify signature
 uint8_t peer_nonce[NONCE_SIZE]; // Store peer's nonce to sign
 
+/* Helper function to print buffers*/
+void print_arr(uint8_t* arr, size_t len){
+    for (int i = 0; i < len; i++){
+        fprintf(stderr, "%d ", arr[i]);
+    }
+    fprintf(stderr, "\n");
+    return;
+}
+
 void init_sec(int initial_state) {
     state_sec = initial_state;
     init_io();
@@ -58,9 +67,10 @@ ssize_t input_sec(uint8_t* buf, size_t max_length) {
             client_hello[i + 6] = nonce[i];
         }
         memcpy(buf, client_hello, CLIENT_HELLO_SIZE);
+        print_arr(client_hello, CLIENT_HELLO_SIZE);
         state_sec = CLIENT_SERVER_HELLO_AWAIT;
         /* Instead of return 0, do I return the payload buffer? */
-        return sizeof(buf);
+        return CLIENT_HELLO_SIZE;
     }
     case SERVER_SERVER_HELLO_SEND: {
         print("SEND SERVER HELLO");
@@ -87,8 +97,7 @@ ssize_t input_sec(uint8_t* buf, size_t max_length) {
                 - Value: <variable>
         */
         /* Generate all the pieces of the server hello */
-
-        /* 1. Generate the 32 bit nonce (stored in nonce) */
+        /* 1. Generate the 32 byte nonce (stored in nonce) */
         /* NOTE: Generated in init_sec() */
         /* 2. Generate the certificate (size is stored in cert_size; certificate is stored in cert) */
         /* NOTE: Generated in init_sec() */
@@ -105,28 +114,26 @@ ssize_t input_sec(uint8_t* buf, size_t max_length) {
         server_hello[offset++] = (server_hello_size - 3) & 0xFF;
         /* Nonce Component */
         server_hello[offset++] = NONCE_SERVER_HELLO;
-        server_hello[offset++] = (NONCE_SIZE >> 8) & 0xFF;
+        server_hello[offset++] = NONCE_SIZE >> 8;
         server_hello[offset++] = NONCE_SIZE & 0xFF;
-        memcpy(server_hello[offset], nonce, NONCE_SIZE);
+        memcpy(&server_hello[offset], nonce, NONCE_SIZE);
         offset += NONCE_SIZE;
         /* Certificate Component */
-        server_hello[offset++] = CERTIFICATE;
-        server_hello[offset++] = (cert_size >> 8) & 0xFF;
-        server_hello[offset++] = cert_size & 0xFF;
-        memcpy(server_hello[offset], certificate, cert_size);
+        /* NOTE: The cert header is already there when you load it */
+        memcpy(&server_hello[offset], certificate, cert_size);
         offset += cert_size;
         /* Nonce Signature Component */
         server_hello[offset++] = NONCE_SIGNATURE_SERVER_HELLO;
-        server_hello[offset++] = (sig_size >> 8) & 0xFF;
+        server_hello[offset++] = sig_size >> 8;
         server_hello[offset++] = sig_size & 0xFF;
-        memcpy(server_hello[offset], nonce_signature, sig_size);
+        memcpy(&server_hello[offset], nonce_signature, sig_size);
         offset += sig_size;    
 
         /* Copying it all to the main buffer */
-        memcpy(buf, server_hello, server_hello_size);
-
+        memcpy(buf, server_hello, server_hello_size); 
+        
         state_sec = SERVER_KEY_EXCHANGE_REQUEST_AWAIT;
-        return sizeof(buf);
+        return server_hello_size;
     }
     case CLIENT_KEY_EXCHANGE_REQUEST_SEND: {
         print("SEND KEY EXCHANGE REQUEST");
@@ -171,7 +178,7 @@ void output_sec(uint8_t* buf, size_t length) {
         /* Insert Client Hello receiving logic here */
 
         /* 1. Place what you recieved in the peer nonce */
-        memcpy(peer_nonce, buf[6], NONCE_SIZE);
+        memcpy(peer_nonce, &buf[6], NONCE_SIZE);
 
         state_sec = SERVER_SERVER_HELLO_SEND;
         break;
@@ -183,6 +190,7 @@ void output_sec(uint8_t* buf, size_t length) {
         print("RECV SERVER HELLO");
 
         /* Insert Server Hello receiving logic here */
+
 
         state_sec = CLIENT_KEY_EXCHANGE_REQUEST_SEND;
         break;
