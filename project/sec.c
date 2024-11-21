@@ -13,12 +13,31 @@ uint8_t nonce[NONCE_SIZE];      // Store generated nonce to verify signature
 uint8_t peer_nonce[NONCE_SIZE]; // Store peer's nonce to sign
 
 /* Helper function to print buffers*/
-void print_arr(uint8_t* arr, size_t len){
-    for (int i = 0; i < len; i++){
-        fprintf(stderr, "%d ", arr[i]);
+#define MIN(a, b) (a < b) ? a : b
+static inline void print_tlv(uint8_t* buffer, size_t len) {
+    uint8_t* buf = buffer;
+
+    while (buf - buffer < len) {
+        uint8_t type = *buf;
+        fprintf(stderr, "Type: 0x%02x\n", type);
+        buf += 1;
+        if (buf - buffer >= len)
+            return;
+
+        uint16_t length = ntohs(*((uint16_t*) buf));
+        buf += 2;
+        fprintf(stderr, "Length: %hu\n", length);
+
+        if (type == CLIENT_HELLO || type == SERVER_HELLO ||
+            type == KEY_EXCHANGE_REQUEST || type == FINISHED ||
+            type == CERTIFICATE || type == DATA)
+            continue;
+        else {
+            uint16_t min_length = MIN(len - (buf - buffer), length);
+            print_hex(buf, min_length);
+            buf += min_length;
+        }
     }
-    fprintf(stderr, "\n");
-    return;
 }
 
 void init_sec(int initial_state) {
@@ -39,22 +58,9 @@ void init_sec(int initial_state) {
 }
 
 ssize_t input_sec(uint8_t* buf, size_t max_length) {
-    // This passes it directly to standard input (working like Project 1)
-    /* return input_io(buf, max_length); */
     switch (state_sec) {
     case CLIENT_CLIENT_HELLO_SEND: {
         print("SEND CLIENT HELLO");
-        /* Insert Client Hello sending logic here */
-        /*
-        Construct a Client Hello to place in the payload in this format...
-        - Type: Client Hello (0x00)
-        - Length: 35
-        - Value...
-            - Type: Nonce (0x01)
-            - Length: 32
-            - Value: 32 Bit Generated Nonce
-        This should be placed in the payload of the packet being sent
-        */ 
         uint8_t client_hello[CLIENT_HELLO_SIZE];/* Initialize a client-hello buffer */
         client_hello[0] = CLIENT_HELLO;         /* Set Type to be Client_Hello */
         client_hello[1] = 0;                    /* Size of Client_Hello is always 35 */
@@ -67,35 +73,12 @@ ssize_t input_sec(uint8_t* buf, size_t max_length) {
             client_hello[i + 6] = nonce[i];
         }
         memcpy(buf, client_hello, CLIENT_HELLO_SIZE);
-        print_arr(client_hello, CLIENT_HELLO_SIZE);
         state_sec = CLIENT_SERVER_HELLO_AWAIT;
         /* Instead of return 0, do I return the payload buffer? */
         return CLIENT_HELLO_SIZE;
     }
     case SERVER_SERVER_HELLO_SEND: {
         print("SEND SERVER HELLO");
-        /* Insert Server Hello sending logic here */
-        /*
-            Construct Server Hello to place in the payload in this format...
-            - Type: Server Hello (0x10)
-            - Length: <variable>
-            - Value...
-                - Type: Nonce (from server) (0x01)
-                - Length: 32
-                - Value: 32 Bit Generated Nonce
-                - Type: Certificate (0xA0)
-                - Length: <variable> 
-                - Value...
-                    - Type: Public Key (0xA1)
-                    - Length: <variable>
-                    - Value: <variable>
-                    - Type: Signature (0xA2)
-                    - Length <variable>
-                    - Value <variable>
-                - Type: Nonce Signature (0x12)
-                - Length: <variable>
-                - Value: <variable>
-        */
         /* Generate all the pieces of the server hello */
         /* 1. Generate the 32 byte nonce (stored in nonce) */
         /* NOTE: Generated in init_sec() */
@@ -137,11 +120,34 @@ ssize_t input_sec(uint8_t* buf, size_t max_length) {
     }
     case CLIENT_KEY_EXCHANGE_REQUEST_SEND: {
         print("SEND KEY EXCHANGE REQUEST");
-
-        /* Insert Key Exchange Request sending logic here */
+        /* 1. Generate Nonce Signature */
+        uint8_t* nonce_signature;
+        size_t sig_len = sign(peer_nonce, NONCE_SIZE, nonce_signature);
+                            //key exchange header + cert header + cert_size + nonce_sig header + sig_len
+        int key_exchange_len = 3 + 3 + cert_size + 3 + sig_len;
+        /* 2. Creating the key exchange component */
+        int offset = 0;
+        uint8_t key_exchange[key_exchange_len];
+        /* Key Exchange Header*/
+        key_exchange[offset++] = KEY_EXCHANGE_REQUEST;
+        key_exchange[offset++] = ((key_exchange_len - 3) >> 8);
+        key_exchange[offset++] = (key_exchange_len - 3) & 0xFF;
+        /* Copying the Certificate In*/
+        memcpy(&key_exchange[offset], certificate, cert_size);
+        offset += cert_size;
+        /* Nonce Signature Header */
+        key_exchange[offset++] = NONCE_SIGNATURE_KEY_EXCHANGE_REQUEST;
+        key_exchange[offset++] = sig_len >> 8;
+        key_exchange[offset++] = sig_len & 0xFF;
+        memcpy(&key_exchange[offset], nonce_signature, sig_len);
+        offset += sig_len;
+        
+        fprintf(stderr, "Offset: %d\n", offset);
+        fprintf(stderr, "Offset: %d\n", key_exchange_len);
+        memcpy(buf, key_exchange, key_exchange_len);
 
         state_sec = CLIENT_FINISHED_AWAIT;
-        return 0;
+        return key_exchange_len;
     }
     case SERVER_FINISHED_SEND: {
         print("SEND FINISHED");
@@ -167,18 +173,15 @@ ssize_t input_sec(uint8_t* buf, size_t max_length) {
 
 void output_sec(uint8_t* buf, size_t length) {
     // This passes it directly to standard output (working like Project 1)
-    // return output_io(buf, length); 
-
     switch (state_sec) {
     case SERVER_CLIENT_HELLO_AWAIT: {
         if (*buf != CLIENT_HELLO)
             exit(4);
 
         print("RECV CLIENT HELLO");
-        /* Insert Client Hello receiving logic here */
 
         /* 1. Place what you recieved in the peer nonce */
-        memcpy(peer_nonce, &buf[6], NONCE_SIZE);
+        memcpy(&peer_nonce, buf + 6, NONCE_SIZE);
 
         state_sec = SERVER_SERVER_HELLO_SEND;
         break;
@@ -188,9 +191,45 @@ void output_sec(uint8_t* buf, size_t length) {
             exit(4);
 
         print("RECV SERVER HELLO");
+        /* Getting the offset of the certificate and its length */
+        int cert_loc = 3 + 3 + NONCE_SIZE;                          //certificate idx
+        int cert_len = (buf[cert_loc + 1] << 8) + buf[cert_loc + 2];//certificate len (in server hello)
 
-        /* Insert Server Hello receiving logic here */
+        /* Getting the offset of the nonce_sig and its length */
+        int nonce_sig_loc = 3 + 3 + NONCE_SIZE + 3 + cert_len;    //nonce-sig idx
+        int nonce_sig_len = (buf[nonce_sig_loc + 1] << 8) + buf[nonce_sig_loc + 2];           //get the nonce signature length
+    
+        /* Getting the public key and signature length*/
+        int pk_len = (buf[cert_loc + 4] << 8) + buf[cert_loc + 5];                            //get the public key length
+        int sig_len = (buf[cert_loc + 6 + pk_len + 1] << 8) + buf[cert_loc + 6 + pk_len + 2]; //get the signature length 
 
+        /* Load the public key */
+        load_peer_public_key(buf + cert_loc + 6, pk_len);          //load the public key
+        
+        /* 1. Attempt to verify the certificate with the public key */
+        int cert_check = verify(buf + cert_loc + 6,                 //pk location 
+                                pk_len,                             //pk length
+                                buf + cert_loc + 6 + pk_len + 3,    //sig location
+                                sig_len,                            //sig length
+                                ec_ca_public_key);                  //cert auth pk
+        if (cert_check != 1){
+            fprintf(stderr, "Invalid Certificate");
+            exit(1);
+        }
+
+        /* 2. Attempt to verify that the client nonce was signed by the server */
+        int nonce_check = verify(nonce,                            //nonce value
+                                NONCE_SIZE,                        //nonce size
+                                buf + nonce_sig_loc + 3,           //nonce sig location 
+                                nonce_sig_len,                     //nonce sig length
+                                ec_peer_public_key);               //ec_peer_public_key
+        if (nonce_check != 1){
+            fprintf(stderr, "Invalid Nonce Signature");
+            exit(2);
+        }
+
+        /* 3. Save server's nonce in peer nonce */
+        memcpy(&peer_nonce, buf + 6, NONCE_SIZE);
 
         state_sec = CLIENT_KEY_EXCHANGE_REQUEST_SEND;
         break;
