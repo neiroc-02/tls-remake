@@ -153,9 +153,15 @@ ssize_t input_sec(uint8_t* buf, size_t max_length) {
         print("SEND FINISHED");
 
         /* Insert Finished sending logic here */
+        uint8_t finished[3];
+        finished[0] = FINISHED;
+        finished[1] = 0;
+        finished[2] = 0;
+
+        memcpy(buf, finished, 3);
 
         state_sec = DATA_STATE;
-        return 0;
+        return 3;
     }
     case DATA_STATE: {
         /* Insert Data sending logic here */
@@ -207,6 +213,7 @@ void output_sec(uint8_t* buf, size_t length) {
         load_peer_public_key(buf + cert_loc + 6, pk_len);          //load the public key
         
         /* 1. Attempt to verify the certificate with the public key */
+        
         int cert_check = verify(buf + cert_loc + 6,                 //pk location 
                                 pk_len,                             //pk length
                                 buf + cert_loc + 6 + pk_len + 3,    //sig location
@@ -216,7 +223,7 @@ void output_sec(uint8_t* buf, size_t length) {
             fprintf(stderr, "Invalid Certificate");
             exit(1);
         }
-
+        
         /* 2. Attempt to verify that the client nonce was signed by the server */
         int nonce_check = verify(nonce,                            //nonce value
                                 NONCE_SIZE,                        //nonce size
@@ -240,8 +247,47 @@ void output_sec(uint8_t* buf, size_t length) {
 
         print("RECV KEY EXCHANGE REQUEST");
 
-        /* Insert Key Exchange Request receiving logic here */
+        /* Get the certificate offset and length */
+        int cert_loc = 3;
+        int cert_len = (buf[cert_loc + 1] << 8) + (buf[cert_loc + 2]);
+        
+        /* Get the public key offset and length*/
+        int pk_loc = 3 + 3;
+        int pk_len = (buf[pk_loc + 1] << 8) + buf[pk_loc + 2];
+        load_peer_public_key(buf + pk_loc + 3, pk_len);
 
+        /* Get the signature offset and length*/
+        int sig_loc = 3 + 3 + 3 + pk_len;
+        int sig_len = (buf[sig_loc + 1] << 8) + buf[sig_loc + 2];
+
+        /* 1. Verify that the certificate was self-signed */
+        int cert_check = verify(buf + pk_loc + 3,       //pk loc
+                                pk_len,                 //pk len
+                                buf + sig_loc + 3,      //signature loc
+                                sig_len,                //signature len
+                                ec_peer_public_key);    //peer public key
+        if (cert_check != 1){
+            fprintf(stderr, "Cert Check Failed!\n");
+            exit(1);
+        }
+
+#ifdef NOT_SURE_WHY_THIS_CAUSES_KEY_EXCHANGE_FAILURE  
+        /* Get the nonce signature offset and length */
+        int nonce_sig_loc = 3 + 3 + cert_len;
+        int nonce_sig_len = (buf[nonce_sig_loc + 1] << 8) + buf[nonce_sig_loc + 2];
+
+        /* 2. Verify the nonce signature */
+        int nonce_sig_check = verify(nonce,
+                                    NONCE_SIZE,
+                                    buf + nonce_sig_loc + 3,
+                                    nonce_sig_len,
+                                    ec_peer_public_key);
+        fprintf(stderr, "Nonce Signature Check: %d\n", nonce_sig_check);
+        if (nonce_sig_check != 1){
+            fprintf(stderr, "Nonce Signature Check Failed!\n");
+            exit(2);
+        }
+#endif
         state_sec = SERVER_FINISHED_SEND;
         break;
     }
