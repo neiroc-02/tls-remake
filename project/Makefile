@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-s -lcrypto
+CFLAGS=-s -lcrypto -g -fsanitize=address
 
 all: clean build
 
