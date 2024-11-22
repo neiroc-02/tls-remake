@@ -86,7 +86,7 @@ ssize_t input_sec(uint8_t* buf, size_t max_length) {
         /* NOTE: Generated in init_sec() */
         /* 3. Generate nonce signature */
         int offset = 0;
-        uint8_t *nonce_signature;
+        uint8_t nonce_signature[255];
         ssize_t sig_size = sign(peer_nonce, NONCE_SIZE, nonce_signature);
         /* Constructing server_hello... */
         int server_hello_size = NONCE_SIZE + cert_size + sig_size + 12;
@@ -121,7 +121,7 @@ ssize_t input_sec(uint8_t* buf, size_t max_length) {
     case CLIENT_KEY_EXCHANGE_REQUEST_SEND: {
         print("SEND KEY EXCHANGE REQUEST");
         /* 1. Generate Nonce Signature */
-        uint8_t* nonce_signature;
+        uint8_t nonce_signature[255];
         size_t sig_len = sign(peer_nonce, NONCE_SIZE, nonce_signature);
                             //key exchange header + cert header + cert_size + nonce_sig header + sig_len
         int key_exchange_len = 3 + 3 + cert_size + 3 + sig_len;
@@ -271,7 +271,6 @@ void output_sec(uint8_t* buf, size_t length) {
             exit(1);
         }
 
-#ifdef NOT_SURE_WHY_THIS_CAUSES_KEY_EXCHANGE_FAILURE  
         /* Get the nonce signature offset and length */
         int nonce_sig_loc = 3 + 3 + cert_len;
         int nonce_sig_len = (buf[nonce_sig_loc + 1] << 8) + buf[nonce_sig_loc + 2];
@@ -287,7 +286,6 @@ void output_sec(uint8_t* buf, size_t length) {
             fprintf(stderr, "Nonce Signature Check Failed!\n");
             exit(2);
         }
-#endif
         state_sec = SERVER_FINISHED_SEND;
         break;
     }
