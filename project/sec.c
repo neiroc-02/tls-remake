@@ -151,9 +151,7 @@ ssize_t input_sec(uint8_t *buf, size_t max_length)
     }
     case DATA_STATE:
     {
-        #ifdef OLD
         /* Initialize IV and Cipher Text*/
-        print("HERE!");
         uint8_t initialization_vec[IV_SIZE];
         uint8_t stdin_bytes[MAX_PAYLOAD];
         uint8_t cipher_text[944];
@@ -164,17 +162,15 @@ ssize_t input_sec(uint8_t *buf, size_t max_length)
         /* Encrypt Buffer and Get the IV/Cipher Text */
         if (read_bytes > 0)
         {
-            print("HERE!!!!!");
+            /* If we read data, encrypt the data */
             size_t encrypt_len = encrypt_data(stdin_bytes, read_bytes, initialization_vec, cipher_text);
-            print("HERE!!");
 
             /* Generate MAC/ENC Keys */
             uint8_t hmac_buffer[IV_SIZE + encrypt_len];
             uint8_t hmac_digest[MAC_SIZE];
-            derive_keys();
 
             memcpy(hmac_buffer, initialization_vec, IV_SIZE);
-            memcpy(&hmac_buffer[IV_SIZE], cipher_text, encrypt_len);
+            memcpy(hmac_buffer + IV_SIZE, cipher_text, encrypt_len);
             hmac(hmac_buffer, IV_SIZE + encrypt_len, hmac_digest);
 
             /* Data Setup */
@@ -210,11 +206,9 @@ ssize_t input_sec(uint8_t *buf, size_t max_length)
             /* Copying the data to buf */
             memset(buf, 0, 1012);
             memcpy(buf, data, offset);
-            print("DONE");
 
             return offset;
         }
-        #endif
         return 0;
     }
     default:
@@ -362,7 +356,6 @@ void output_sec(uint8_t *buf, size_t length)
     {
         if (*buf != DATA)
             exit(4);
-
 
         /* 1. First, run an HMAC check to see if the data is valid */
         int iv_loc = 3;
